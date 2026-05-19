@@ -1,0 +1,17 @@
+# Dépendances Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Clés de sécurité et secrets locaux
+*.json
+!package.json
+!package-lock.json
+!lifecycle.json
+!config.json
+
+# OS et éditeurs
+.DS_Store
+.vscode/
+.idea/

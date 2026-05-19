@@ -1,0 +1,11 @@
+# Ne pas embarquer Git ni les configurations locales
+.git
+.gitignore
+.github
+.dockerignore
+README.md
+tp3.md
+
+# Ne pas copier les node_modules locaux (Docker fera son propre npm install)
+**/node_modules
+npm-debug.log
