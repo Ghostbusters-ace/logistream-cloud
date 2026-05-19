@@ -740,15 +740,9 @@ startProducing().catch(err => {
 
 ---
 
-Voici le bloc Markdown complet, parfaitement nettoyé, formaté et prêt à être inséré directement dans ton fichier.
-
-J'ai rempli tous les trous (`_______`) laissés par ton professeur dans le code et le fichier YAML, et j'ai rédigé de façon claire et synthétique la réponse technique à sa question sur les Consumer Groups Kafka, afin que ton rendu soit impeccable.
-
----
-
 ### 2.5 — Consumer Kafka : le Tracker Service traite les positions
 
-#### 📄 Création du fichier : `consumer/tracker-consumer.js`
+#### Création du fichier : `consumer/tracker-consumer.js`
 
 ```javascript
 const { Kafka } = require('kafkajs');
@@ -879,7 +873,7 @@ docker push europe-west9-docker.pkg.dev/${PROJECT_ID}/tp2-registry/tracker-consu
 
 ```
 
-#### 📄 Création du manifeste Kubernetes : `k8s/kafka-apps.yaml`
+#### Création du manifeste Kubernetes : `k8s/kafka-apps.yaml`
 
 ```yaml
 # Deployment du GPS Producer (simule la flotte de camions)
@@ -940,7 +934,7 @@ spec:
 
 ```
 
-### 🚀 Application et Observation du Cluster
+#### Application et Observation du Cluster
 
 ```bash
 # Appliquer les déploiements applicatifs Kafka
@@ -1021,7 +1015,7 @@ rm cicd-key.json # Supprimer immédiatement après copie
 
 ### 3.3 — Pipeline GitHub Actions complet
 
-📄 **Création du fichier :** `.github/workflows/logistream-deploy.yml`
+ **Création du fichier :** `.github/workflows/logistream-deploy.yml`
 
 ```yaml
 name: LogiStream — CI/CD Pipeline
