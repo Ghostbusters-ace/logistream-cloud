@@ -25,18 +25,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: './producer/package-lock.json'
 
       - name: Installer les dépendances du Producer
         run: |
           cd producer
-          npm ci
+          npm install
 
       - name: Installer les dépendances du Consumer
         run: |
           cd consumer
-          npm ci
+          npm install
 
       - name: Valider les manifests Kubernetes
         run: |
