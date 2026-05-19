@@ -48,7 +48,8 @@ LogiStream est une startup B2B qui fournit une plateforme de suivi de livraisons
 ![alt text](image-1.png)![alt text](image-3.png)![alt text](image-4.png)
 - [x] Producer envoyant des positions GPS  et Consumer traitant les données en temps réel 
 ![alt text](image-5.png) ![alt text](image-6.png)![alt text](image-7.png)
-- [ ] Pipeline GitHub Actions avec 3 jobs réussis  
+- [x] Pipeline GitHub Actions avec 3 jobs réussis
+![alt text](image-8.png)
 - [ ] `README.md` avec diagramme de l’architecture *LogiStream*  
 
 ---
@@ -1177,6 +1178,188 @@ Pour appliquer et auditer des règles de conformité et de sécurité personnali
 
 Un outil particulièrement adapté est **Datree** (ou **Conftest** basé sur le langage Rego). Il permet d'intercepter les fichiers YAML directement dans la CI GitHub Actions et de bloquer le pipeline si des règles de sécurité spécifiques sont enfreintes (comme l'absence de limites CPU/Mémoire, l'exécution d'un conteneur en mode *root*, ou l'omission des sondes de disponibilité `readinessProbe` et `livenessProbe`).
 
-```
+---
+
+## Partie 4 — Observabilité du cluster Kafka et des microservices
+
+### 4.1 — Métriques Kafka avec Cloud Monitoring
+
+```bash
+# Vérifier les métriques disponibles pour Kafka
+# Strimzi expose les métriques JMX via Prometheus
+# Dans GKE, Cloud Monitoring peut les scraper
+
+#Observer la consommation des ressources en temps réel
+kubectl top pods -n logistream -l strimzi.io/cluster=logistream-kafka
+
+# Vérifier le retard de consommation (Consumer Lag)
+kubectl run kafka-lag-check \
+  --image=quay.io/strimzi/kafka:0.39.0-kafka-3.7.0 \
+  --restart=Never \
+  -n logistream \
+  -- /bin/bash -c "
+  echo '=== STATUT DU CONSUMER GROUP ===';
+  bin/kafka-consumer-groups.sh \
+    --bootstrap-server logistream-kafka-kafka-bootstrap:9092 \
+    --describe \
+    --group tracker-service-group 2>/dev/null;
+  echo -e '\n=== STRUCTURE DU TOPIC ===';
+  bin/kafka-topics.sh \
+    --bootstrap-server logistream-kafka-kafka-bootstrap:9092 \
+    --describe \
+    --topic truck-positions
+  "
+
+# check avec l'image Bitnami (plus légère et accessible)
+kubectl run kafka-lag-check \
+  --image=bitnami/kafka:3.7.0 \
+  --restart=Never \
+  -n logistream \
+  -- /bin/bash -c "
+  echo '=== STATUT DU CONSUMER GROUP ===';
+  opt/bitnami/kafka/bin/kafka-consumer-groups.sh \
+    --bootstrap-server logistream-kafka-kafka-bootstrap:9092 \
+    --describe \
+    --group tracker-service-group;
+  echo -e '\n=== STRUCTURE DU TOPIC ===';
+  opt/bitnami/kafka/bin/kafka-topics.sh \
+    --bootstrap-server logistream-kafka-kafka-bootstrap:9092 \
+    --describe \
+    --topic truck-positions
+    "
+
+# Attente de la fin de l'exécution
+sleep 15
+
+# Affichage des résultats
+kubectl logs kafka-lag-check -n logistream
+
+# Nettoyage du pod temporaire
+kubectl delete pod kafka-lag-check -n logistream
 
 ```
+
+---
+
+### 4.2 — Logs structurés et requêtes Cloud Logging
+
+```bash
+# Logs du producer (positions GPS envoyées)
+gcloud logging read \
+  'resource.type="k8s_container" \
+  AND resource.labels.namespace_name="logistream" \
+  AND resource.labels.container_name="gps-producer"' \
+  --limit=20 \
+  --format="table(timestamp,jsonPayload.message)"
+
+gcloud logging read \
+  'resource.type="k8s_container" \
+  AND resource.labels.namespace_name="logistream" \
+  AND resource.labels.container_name="tracker-consumer" \
+  AND textPayload:"[ALERTE]"' \
+  --limit=10
+
+# Logs du consumer filtré sur les alertes seulement
+gcloud logging read \
+  'resource.type="k8s_container" \
+  AND resource.labels.namespace_name="logistream" \
+  AND resource.labels.container_name:"kafka" \
+  AND severity>=ERROR' \
+  --limit=20
+
+# 1. Voir les logs en direct du GPS Producer
+kubectl logs -n logistream -l app=gps-producer --tail=20
+
+# 2. Voir les logs en direct du Tracker Consumer
+kubectl logs -n logistream -l app=tracker-consumer --tail=20
+```
+
+---
+
+### 4.3 — Créer une alerte sur le Consumer Lag
+
+> Un consumer lag élevé sur truck-positions signifie que le Tracker Service n'arrive pas à traiter les positions assez vite : les chauffeurs verront des positions en retard dans l'interface. C'est le problème exact que LogiStream a eu avec son ancienne architecture.
+
+Dans la console GCP (Monitoring → Alerting → Create Policy) :
+
+| Configuration | Champ de saisie | Valeur à renseigner |
+| --- | --- | --- |
+| **Étape 1 — Métrique** | Type de ressource | `Kubernetes Container` |
+|  | Nom de la métrique | `kubernetes.io/container/memory/request_utilization` |
+|  | Filtre ciblé | `namespace_name = "logistream"`, `container_name = "tracker-consumer"` |
+| **Étape 2 — Condition** | Seuil de déclenchement | `> 80%` |
+|  | Fenêtre temporelle | `5 minutes` |
+| **Étape 3 — Canal** | Notification | `Votre adresse email` |
+|  | Nom de l'alerte | `LogiStream Tracker Consumer — Mémoire haute` |
+
+#### 📝 Analyse des métriques constatées au repos
+
+*(Note tes valeurs constatées sur ton projet pour finaliser ton compte rendu)*
+
+* **CPU moyen tracker-consumer :** `____1___ %`
+* **RAM moyenne tracker-consumer :** `____35___ Mi`
+* **Pods HPA actifs au repos :** `___1____`
+
+#### Question de réflexion
+
+**Scénario :** Vous observez que le *consumer lag* sur `truck-positions` monte progressivement. Vous possédez déjà 3 instances (réplicas) de l'application `tracker-consumer`. Quelles sont les 3 actions à envisager, **dans l'ordre**, pour résoudre cette perte de performance ?
+
+#### Réponse
+
+1. **Augmenter le nombre de partitions du topic Kafka :** Un groupe de consommateurs ne peut pas avoir plus de réplicas actifs que de partitions disponibles sur le topic. Si le topic `truck-positions` n'a que 3 partitions, ajouter un 4ème pod `tracker-consumer` restera inactif (il sera en attente). Il faut donc passer le topic à 6 ou 9 partitions.
+2. **Augmenter le nombre de réplicas de l'application (Scale-out) :** Une fois le nombre de partitions augmenté, modifier le déploiement Kubernetes ou configurer l'Horizontal Pod Autoscaler (HPA) pour ajouter de nouvelles instances (ex: passer à 6 pods) afin de paralléliser efficacement le traitement du lag.
+3. **Optimiser le code du consommateur (Scale-up horizontal/applicatif) :** Si la parallélisation ne suffit pas, il faut revoir le code du microservice (ex: implémenter un traitement asynchrone par batch de messages au lieu d'un traitement unitaire, ou augmenter la puissance CPU/RAM allouée à chaque conteneur).
+
+---
+
+##  Nettoyage Final — IMPORTANT
+
+Pour éviter de consommer inutilement tes crédits Google Cloud restants, détruis l'intégralité des ressources créées lors du TP en exécutant les commandes suivantes dans l'ordre :
+
+```bash
+# 1. Supprimer les ressources applicatives Kubernetes
+kubectl delete -f k8s/ -n logistream
+
+# 2. Supprimer le cluster Kafka (et libérer les volumes persistants associés)
+kubectl delete kafka logistream-kafka -n logistream
+kubectl delete kafkatopics --all -n logistream
+
+# 3. Désinstaller l'opérateur Strimzi
+kubectl delete -f https://strimzi.io/install/latest?namespace=kafka -n kafka
+
+# 4. Supprimer les espaces de noms isolés (Namespaces)
+kubectl delete namespace logistream kafka
+
+# 5. Supprimer définitivement le cluster managé GKE (Opération IRRÉVERSIBLE)
+gcloud container clusters delete logistream-cluster --region=europe-west9 --quiet
+
+# 6. Vérification finale de l'état des infrastructures cloud
+echo -e "\n=== VÉRIFICATION DES CLUSTERS EN COURS ==="
+gcloud container clusters list
+
+echo -e "\n=== VÉRIFICATION DES NAMESPACES ==="
+kubectl get namespaces
+
+```
+
+---
+
+## 🏆 Récapitulatif — Compétences validées
+
+Félicitations, tu as mis en place une architecture logicielle moderne orientée événements (*Event-Driven Architecture*) de bout en bout !
+
+* **Kubernetes :** Maîtrise du cycle de vie des objets `Deployment`, `Service`, `ConfigMap`, `Secret` et scalabilité dynamique via `HPA`.
+* **Apache Kafka (Strimzi) :** Déploiement d'un cluster basé sur l'architecture KRaft, gestion déclarative via la CRD `KafkaTopic` et gestion fine des `Consumer Groups`.
+* **Développement Cloud Native (KafkaJS) :** Configuration d'un Producer distribué avec clé de partitionnement pour garantir l'ordre des messages et d'un Consumer résilient.
+* **Intégration et Déploiement Continus (CI/CD) :** Automatisation complète d'une chaîne GitHub Actions (validation de syntaxe ➔ construction Docker ➔ push de registres sécurisés ➔ mise à jour rolling update sur GKE).
+* **Observabilité Industrielle :** Diagnostic avancé à l'aide des outils de centralisation `Cloud Logging` et de supervision `Cloud Monitoring`.
+
+## Livrables finaux à remettre
+
+* Résultat de la commande kafka-consumer-groups.sh --describe (screenshot)
+
+GROUP                 TOPIC            PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG  CONSUMER-ID                                      HOST            CLIENT-ID
+tracker-service-group delivery-alerts  1          113             113             0    logistream-tracker-consumer-58b747b2...          /10.107.128.2   logistream-tracker-consumer
+tracker-service-group truck-positions  1          1127            1127            0    logistream-tracker-consumer-7c4913fe...          /10.107.128.62  logistream-tracker-consumer
+tracker-service-group truck-positions  2          1133            1133            0    logistream-tracker-consumer-013ea49a...          /10.107.128.4   logistream-tracker-consumer
+tracker-service-group truck-positions  5          1127            1127            0    logistream-tracker-consumer-013ea49a...          /10.107.128.4   logistream-tracker-consumer
