@@ -1168,7 +1168,7 @@ gh run watch
 
 ---
 
-### ❓ Question de validation SecOps : Conformité des manifests Kubernetes
+#### Question de validation SecOps : Conformité des manifests Kubernetes
 
 **Question :** Le pipeline valide les manifests Kubernetes avec `kubeval`. Quel autre outil de validation vous permettrait de vérifier que les manifests respectent les règles de sécurité de l'entreprise (ex: tout container doit avoir des `resources.limits`, tout pod doit avoir une `readinessProbe`) ?
 
