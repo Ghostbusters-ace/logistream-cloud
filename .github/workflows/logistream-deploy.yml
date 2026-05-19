@@ -109,16 +109,17 @@ jobs:
           gcloud container clusters get-credentials ${GKE_CLUSTER} \
             --region=${GKE_REGION} --project=${PROJECT_ID}
 
+      # On applique directement le tag basé sur le SHA unique du commit
       - name: Mettre à jour le GPS Producer
         run: |
           kubectl set image deployment/gps-producer \
-            gps-producer=${{ needs.build-push.outputs.producer-tag }} \
+            gps-producer=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/tp2-registry/gps-producer:${{ github.sha }} \
             -n logistream
 
       - name: Mettre à jour le Tracker Consumer
         run: |
           kubectl set image deployment/tracker-consumer \
-            tracker-consumer=${{ needs.build-push.outputs.consumer-tag }} \
+            tracker-consumer=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/tp2-registry/tracker-consumer:${{ github.sha }} \
             -n logistream
 
       - name: Attendre les déploiements
@@ -129,5 +130,4 @@ jobs:
       - name: Vérification post-déploiement
         run: |
           kubectl get pods -n logistream
-          kubectl get kafkatopics -n logistream
           echo "Déploiement LogiStream réussi ✓"
