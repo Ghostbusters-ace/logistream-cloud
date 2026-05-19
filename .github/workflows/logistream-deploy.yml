@@ -41,7 +41,7 @@ jobs:
           # Utilisation de la validation native de kubectl sans installation tierce
           kubectl safe-validate --client --dry-run=client -f k8s/ || \
           docker run --rm -v $(pwd):/apps alpine/k8s-dfv k8s/*.yaml || \
-          echo "Validation alternative : OK ou non supportée
+          echo "Validation alternative : OK ou non supportée"
 
   # ==========================================================
   # Job 2 : Build & Push (uniquement sur push main)
